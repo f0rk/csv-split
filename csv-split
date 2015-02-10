@@ -1,0 +1,129 @@
+#!/usr/bin/perl
+
+use strict;
+use warnings;
+use autodie;
+
+use IO::File;
+use IO::Handle;
+
+use Getopt::Long;
+use Text::CSV;
+
+my $stdin = IO::Handle->new()->fdopen(fileno(STDIN), "r");
+my $stdout = IO::Handle->new()->fdopen(fileno(STDOUT), "w");
+my $stderr = IO::Handle->new()->fdopen(fileno(STDERR), "w");
+
+my $usage = "usage: csv-split [-h|--help] --size <size> --file <file> --name <name>";
+
+my $file;
+my $size;
+my $name;
+my $help;
+
+Getopt::Long::Configure("bundling");
+my $result = GetOptions("file=s" => \$file,
+                        "size=s" => \$size,
+                        "name=s" => \$name,
+                        "help|h" => \$help);
+if (!$result) {
+    $stderr->print("ERROR: illegal configuration\n");
+    $stderr->print("$usage\n");
+    exit(1);
+}
+
+if ($help) {
+    $stderr->print("$usage\n");
+    exit(0);
+}
+
+if ((!defined($file) || $file eq "-") && !defined($name)) {
+    $stderr->print("ERROR: when file is stdin, a name for the output must be given\n");
+    $stderr->print("$usage\n");
+    exit(1);
+}
+
+my $in_handle = $stdin;
+if (defined($file) && $file ne "-") {
+    $in_handle = IO::File->new($file, "r");
+}
+
+$name //= $file;
+
+my @parts = split(/\./, $name);
+my $ext = pop(@parts);
+my $file_base = join(".", @parts);
+
+if ($size =~ /^(\d+)[lL]?$/) {
+    $size = $1;
+} else {
+    $stderr->print("ERROR: unrecognized size '$size'\n");
+    $stderr->print("$usage\n");
+    exit(1);
+}
+
+if ($size < 1) {
+    $stderr->print("ERROR: size '$size' must be at least 1\n");
+    $stderr->print("$usage\n");
+    exit(1);
+}
+
+my $headers = undef;
+my $print_headers = 1;
+my $splits = 0;
+my $i = 0;
+
+my $config = {
+    binary => 1,
+    sep_char => ",",
+    quote_char => '"',
+    eol => "\n",
+};
+
+my $in_csv = Text::CSV->new($config);
+my $out_csv = Text::CSV->new($config);
+
+my $out_handle = undef;
+
+while (my $row = $in_csv->getline($in_handle)) {
+    if (!defined($headers)) {
+        $headers = $row;
+        next;
+    }
+    
+    my $status = undef;
+
+    if (!defined($out_handle)) {
+        $out_handle = IO::File->new($file_base.".".sprintf("%03d", $splits).".".$ext, "w");
+    }
+
+    if ($print_headers) {
+        $status = $out_csv->print($out_handle, $headers);
+        if (!$status) {
+            $stderr->print($out_csv->error_diag());
+            exit(1);
+        }
+        $print_headers = 0;
+    }
+    $status = $out_csv->print($out_handle, $row);
+    if (!$status) {
+        $stderr->print($out_csv->error_diag());
+        exit(1);
+    }
+
+    $i++;
+    if ($i >= $size) {
+        $i = 0;
+        $splits++;
+        $print_headers = 1;
+
+        close($out_handle);
+        $out_handle = undef;
+    }
+}
+
+if (!$in_csv->status() && !$in_csv->eof()) {
+    $stderr->print($in_csv->error_diag()."\n");
+    exit(1);
+}
+

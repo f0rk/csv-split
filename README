@@ -1,0 +1,27 @@
+Split a csv into multiple files, preserving headers.
+
+Call csv-split with -h for help.
+
+Requires perl, Text::CSV, and Getopt::Long.
+
+Examples:
+
+~$ cat /tmp/a.csv
+a,b,c
+t,2,3
+u,5,6
+v,8,9
+~$ csv-split --file /tmp/a.csv --size 1
+~$ ls /tmp/a.*
+/tmp/a.000.csv  /tmp/a.001.csv  /tmp/a.002.csv  /tmp/a.csv
+~$ cat /tmp/a.0*
+a,b,c
+t,2,3
+a,b,c
+u,5,6
+a,b,c
+v,8,9
+~$ rm /tmp/a.0*
+~$ cat /tmp/a.csv | csv-split --file - --size 1 --name /tmp/a.csv
+~$ ls /tmp/a.*
+/tmp/a.000.csv  /tmp/a.001.csv  /tmp/a.002.csv  /tmp/a.csv
